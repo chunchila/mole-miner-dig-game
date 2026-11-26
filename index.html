@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>מולי כורה הקריסטלים</title>
+<style>
+html,body{margin:0;padding:0;background:#120b06;color:#fff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;height:100%;-webkit-user-select:none;user-select:none;touch-action:none}
+#wrap{max-width:480px;margin:0 auto;height:100%;display:flex;flex-direction:column;position:relative}
+#hud{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-size:15px;background:linear-gradient(180deg,#2a1a0c,#120b06)}
+#hud b{font-size:17px;color:#7fe0ff}
+#cv{flex:1;display:block;width:100%;touch-action:none}
+.ovl{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(16,10,5,.93);text-align:center;padding:24px;z-index:5}
+.ovl h1{font-size:28px;margin:0 0 10px;color:#7fe0ff;text-shadow:0 2px 14px #00b3ff66}
+.ovl p{font-size:15px;line-height:1.7;color:#e8dcc8;margin:0 0 22px;max-width:330px}
+button{background:linear-gradient(180deg,#7fe0ff,#1ea7e0);border:0;border-radius:999px;padding:14px 42px;font-size:19px;font-weight:700;color:#04283a;box-shadow:0 4px 18px #1ea7e055;cursor:pointer}
+button:active{transform:scale(.96)}
+.hide{display:none!important}
+#hint{position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:12px;color:#8a6f4d;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="wrap">
+<div id="hud"><div>קריסטלים: <b id="gm">0/0</b></div><div>ניקוד: <b id="sc">0</b></div><div id="lives">♥♥♥</div></div>
+<canvas id="cv"></canvas>
+<div id="hint">החליקו כדי לחפור - אספו את כל הקריסטלים וברחו בדלת</div>
+<div class="ovl" id="startOvl">
+<h1>מולי כורה הקריסטלים</h1>
+<p>מולי החפרפרת יורדת למכרה העמוק. חפרו במנהרות, אספו את כל הקריסטלים הכחולים והיזהרו מסלעים נופלים ומעטלפי מערה. כשאספתם הכל - הדלת נפתחת!</p>
+<button id="startBtn">שחקו</button>
+</div>
+<div class="ovl hide" id="overOvl">
+<h1 id="overT">נגמר המשחק</h1>
+<p id="overP"></p>
+<button id="againBtn">שחקו שוב</button>
+</div>
+</div>
+<script>
+'use strict';
+const cv=document.getElementById('cv'),x=cv.getContext('2d');
+const gmEl=document.getElementById('gm'),scEl=document.getElementById('sc'),livesEl=document.getElementById('lives');
+let W=0,H=0,DPR=1,TS=24,OX=0,OY=0;
+const COLS=16,ROWS=20;
+function rs(){DPR=Math.min(2,window.devicePixelRatio||1);const r=cv.getBoundingClientRect();W=r.width;H=r.height;cv.width=W*DPR;cv.height=H*DPR;x.setTransform(DPR,0,0,DPR,0,0);x.direction='ltr';TS=Math.min(W/COLS,H/ROWS);OX=(W-COLS*TS)/2;OY=(H-ROWS*TS)/2}
+window.addEventListener('resize',rs);
+const DIRT=1,EMPTY=0,GEM=2,BOULDER=3,ROCK=4,EXIT=5;
+let grid=[],bats=[],gems=0,got=0,score=0,lives=3,run=false,level=1;
+let mx=8,my=2,mdir={x:0,y:0},moveT=0,physT=0,inv=0,exitOpen=false,shake=0;
+let falling=[];
+function rnd(n){return Math.floor(Math.random()*n)}
+function gen(){
+grid=[];for(let r=0;r<ROWS;r++){const row=[];for(let c=0;c<COLS;c++)row.push((r===0||c===0||c===COLS-1||r===ROWS-1)?ROCK:DIRT);grid.push(row)}
+grid[1][1]=EXIT;
+let nGem=10+level*2,nB=6+level*2,nBat=1+level;
+let cx=8,cy=3;grid[cy][cx]=EMPTY;
+for(let i=0;i<26;i++){const d=rnd(4);cx=Math.max(1,Math.min(COLS-2,cx+[1,-1,0,0][d]));cy=Math.max(2,Math.min(ROWS-2,cy+[0,0,1,-1][d]));grid[cy][cx]=EMPTY}
+function place(n,v,pocket){let placed=0,guard=0;while(placed<n&&guard++<500){const c=1+rnd(COLS-2),r=2+rnd(ROWS-3);if(grid[r][c]===DIRT){grid[r][c]=v;if(pocket){if(grid[r-1][c]===DIRT)grid[r-1][c]=EMPTY}placed++}}}
+place(nGem,GEM,false);place(nB,BOULDER,false);
+bats=[];for(let i=0;i<nBat;i++){let guard=0;while(guard++<300){const c=1+rnd(COLS-2),r=4+rnd(ROWS-6);if(grid[r][c]===DIRT){grid[r][c]=EMPTY;bats.push({c,r,t:0});break}}}
+gems=nGem;got=0;exitOpen=false;mx=8;my=2;mdir={x:0,y:0};falling=[];inv=1.5;upd()}
+function upd(){gmEl.textContent=got+'/'+gems;scEl.textContent=score;livesEl.textContent='♥'.repeat(Math.max(0,lives))}
+function openExit(){exitOpen=true}
+function lose(){if(inv>0)return;lives--;shake=.5;upd();inv=2;
+if(lives<=0){run=false;setTimeout(()=>{document.getElementById('overT').textContent='נגמר המשחק';document.getElementById('overP').textContent='מולי אספה '+got+' קריסטלים ו-'+score+' נקודות.';document.getElementById('overOvl').classList.remove('hide')},700)}
+else{mx=8;my=2;mdir={x:0,y:0}}}
+function moveStep(){
+if(mdir.x===0&&mdir.y===0)return;
+const nc=mx+mdir.x,nr=my+mdir.y;
+if(nc<0||nc>=COLS||nr<0||nr>=ROWS)return;
+const t=grid[nr][nc];
+if(t===ROCK||t===BOULDER)return;
+if(t===GEM){got++;score+=100;upd();if(got>=gems)openExit()}
+if(t===EXIT&&exitOpen){score+=250;upd();level++;
+if(level>3){run=false;document.getElementById('overT').textContent='כל הכבוד!';document.getElementById('overP').textContent='מולי רוקנה את המכרה כולו! ניקוד סופי: '+score;document.getElementById('overOvl').classList.remove('hide')}
+else gen();return}
+grid[nr][nc]=EMPTY;mx=nc;my=nr}
+function physics(){
+const nf=[];
+for(const f of falling){if(grid[f.r]&&grid[f.r][f.c]===BOULDER)nf.push(f)}
+falling=nf;
+for(let r=ROWS-2;r>=1;r--)for(let c=1;c<COLS-1;c++){
+if(grid[r][c]!==BOULDER)continue;
+if(grid[r+1][c]===EMPTY){
+grid[r][c]=EMPTY;grid[r+1][c]=BOULDER;falling.push({r:r+1,c});
+if(r+1===my&&c===mx)lose();
+bats=bats.filter(b=>!(b.r===r+1&&b.c===c));
+}else{
+const land=falling.findIndex(f=>f.r===r&&f.c===c);
+if(land>=0){falling.splice(land,1);shake=Math.max(shake,.15)}
+const sup=grid[r+1][c];
+if(sup===BOULDER||sup===GEM||sup===ROCK){
+const dl=grid[r][c-1]===EMPTY&&grid[r+1][c-1]===EMPTY;
+const drr=grid[r][c+1]===EMPTY&&grid[r+1][c+1]===EMPTY;
+if(dl||drr){const dc=dl&&drr?(rnd(2)?1:-1):(dl?-1:1);grid[r][c]=EMPTY;grid[r][c+dc]=BOULDER;falling.push({r,c:c+dc})}
+}else falling=falling.filter(f=>!(f.r===r&&f.c===c));
+}
+}
+}
+function batStep(){
+for(const b of bats){b.t++;
+const opts=[];
+for(const[dc,dr]of[[1,0],[-1,0],[0,1],[0,-1]]){
+const nc=b.c+dc,nr=b.r+dr;
+if(nr<1||nr>=ROWS-1||nc<1||nc>=COLS-1)continue;
+const t=grid[nr][nc];
+if(t===EMPTY||t===EXIT)opts.push([nc,nr])}
+if(!opts.length)continue;
+let pick;
+if(Math.random()<.45){
+opts.sort((a,b2)=>Math.abs(a[0]-mx)+Math.abs(a[1]-my)-(Math.abs(b2[0]-mx)+Math.abs(b2[1]-my)));
+pick=opts[0]}else pick=opts[rnd(opts.length)];
+b.c=pick[0];b.r=pick[1];
+if(b.c===mx&&b.r===my)lose()}
+}
+function step(dt){
+if(shake>0)shake-=dt;
+if(inv>0)inv-=dt;
+moveT+=dt;if(moveT>=0.15){moveT=0;moveStep()}
+physT+=dt;if(physT>=0.16){physT=0;physics()}
+if(Math.floor(performance.now()/420)!==Math.floor((performance.now()-dt*1000)/420))batStep();
+for(const b of bats)if(b.c===mx&&b.r===my)lose();
+}
+function drawDirt(px,py,r,c){
+x.fillStyle='#4a2f16';x.fillRect(px,py,TS,TS);
+x.fillStyle='#5d3d1e';
+x.fillRect(px+((r*7+c*13)%18),py+((r*11+c*5)%18),3,3);
+x.fillRect(px+((r*3+c*17)%20),py+((r*13+c*7)%20),2,2)}
+function draw(){
+x.clearRect(0,0,W,H);
+x.fillStyle='#120b06';x.fillRect(0,0,W,H);
+x.save();
+if(shake>0)x.translate((Math.random()-.5)*6*shake*4,(Math.random()-.5)*6*shake*4);
+for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+const t=grid[r][c],px=OX+c*TS,py=OY+r*TS;
+if(t===DIRT)drawDirt(px,py,r,c);
+else if(t===ROCK){x.fillStyle='#3a3f4a';x.fillRect(px,py,TS,TS);x.fillStyle='#4b515e';x.fillRect(px+2,py+2,TS-4,TS-6)}
+else if(t===GEM){
+x.fillStyle='#241407';x.fillRect(px,py,TS,TS);
+x.save();x.translate(px+TS/2,py+TS/2);
+const g=x.createLinearGradient(-6,-8,6,8);g.addColorStop(0,'#bff3ff');g.addColorStop(1,'#1598d8');
+x.fillStyle=g;x.beginPath();x.moveTo(0,-8);x.lineTo(6,-2);x.lineTo(4,7);x.lineTo(-4,7);x.lineTo(-6,-2);x.closePath();x.fill();
+x.fillStyle='#ffffffaa';x.beginPath();x.arc(-2,-3,1.6,0,7);x.fill();x.restore()}
+else if(t===BOULDER){
+x.fillStyle='#241407';x.fillRect(px,py,TS,TS);
+const g=x.createRadialGradient(px+TS/2-3,py+TS/2-3,2,px+TS/2,py+TS/2,TS/2);
+g.addColorStop(0,'#9aa3b2');g.addColorStop(1,'#525a68');
+x.fillStyle=g;x.beginPath();x.arc(px+TS/2,py+TS/2,TS/2-1.5,0,7);x.fill();
+x.fillStyle='#3c424e';x.beginPath();x.arc(px+TS/2+3,py+TS/2+2,2.4,0,7);x.fill()}
+else if(t===EXIT){
+x.fillStyle='#241407';x.fillRect(px,py,TS,TS);
+x.fillStyle=exitOpen?'#ffd75e':'#5a4a2a';
+x.fillRect(px+3,py+2,TS-6,TS-2);
+if(exitOpen){x.fillStyle='#fff8';x.fillRect(px+6,py+5,TS-12,TS-8)}}
+}
+const mg=x.createRadialGradient(OX+mx*TS+TS/2,OY+my*TS+TS/2,4,OX+mx*TS+TS/2,OY+my*TS+TS/2,TS*3.2);
+mg.addColorStop(0,'rgba(255,220,140,.18)');mg.addColorStop(1,'rgba(255,220,140,0)');
+x.fillStyle=mg;x.fillRect(OX+mx*TS-TS*3,OY+my*TS-TS*3,TS*7,TS*7);
+for(const b of bats){
+const px=OX+b.c*TS+TS/2,py=OY+b.r*TS+TS/2,fl=Math.sin(performance.now()/90+b.c)*4;
+x.fillStyle='#7b3fd4';
+x.beginPath();x.ellipse(px,py,4.5,3.6,0,0,7);x.fill();
+x.beginPath();x.moveTo(px-4,py);x.quadraticCurveTo(px-9,py-4-fl,px-11,py+1);x.quadraticCurveTo(px-7,py+2,px-4,py+2);x.fill();
+x.beginPath();x.moveTo(px+4,py);x.quadraticCurveTo(px+9,py-4-fl,px+11,py+1);x.quadraticCurveTo(px+7,py+2,px+4,py+2);x.fill();
+x.fillStyle='#ffd75e';x.fillRect(px-2.4,py-1.4,1.4,1.4);x.fillRect(px+1,py-1.4,1.4,1.4)}
+if(!(inv>0&&Math.floor(inv*10)%2===0)){
+const px=OX+mx*TS+TS/2,py=OY+my*TS+TS/2;
+x.save();x.translate(px,py);
+x.fillStyle='#8a5a2e';x.beginPath();x.ellipse(0,1,7.5,6.5,0,0,7);x.fill();
+x.fillStyle='#a9743d';x.beginPath();x.ellipse(0,2.5,4.5,3.6,0,0,7);x.fill();
+x.fillStyle='#8a5a2e';x.beginPath();x.arc(-2,-6,5,0,7);x.fill();
+x.fillStyle='#ffd75e';x.beginPath();x.arc(-2,-9.5,2.6,0,7);x.fill();
+x.fillStyle='#fff9d0';x.beginPath();x.arc(-2,-9.5,1.2,0,7);x.fill();
+x.fillStyle='#e8b48a';x.beginPath();x.ellipse(3.5,-5,2.6,1.8,0,0,7);x.fill();
+x.fillStyle='#333';x.beginPath();x.arc(-3.5,-6.5,1.1,0,7);x.fill();
+x.strokeStyle='#e8e0d0';x.lineWidth=1.6;
+x.beginPath();x.moveTo(-6,5);x.lineTo(-9,8);x.moveTo(6,5);x.lineTo(9,8);x.stroke();
+x.restore()}
+x.restore()}
+let last=0;
+function loop(ts){const dt=Math.min(.05,(ts-last)/1000||0);last=ts;if(run)step(dt);draw();requestAnimationFrame(loop)}
+let ts0=null;
+cv.addEventListener('touchstart',e=>{e.preventDefault();const t=e.changedTouches[0];ts0={x:t.clientX,y:t.clientY}},{passive:false});
+cv.addEventListener('touchmove',e=>{e.preventDefault();if(!ts0)return;const t=e.changedTouches[0];
+const dx=t.clientX-ts0.x,dy=t.clientY-ts0.y;
+if(Math.abs(dx)>TS*.7||Math.abs(dy)>TS*.7){
+mdir=Math.abs(dx)>Math.abs(dy)?{x:Math.sign(dx),y:0}:{x:0,y:Math.sign(dy)};
+ts0={x:t.clientX,y:t.clientY}}},{passive:false});
+cv.addEventListener('touchend',e=>{e.preventDefault();ts0=null;mdir={x:0,y:0}},{passive:false});
+window.addEventListener('keydown',e=>{const k=e.key;
+if(k==='ArrowLeft')mdir={x:-1,y:0};else if(k==='ArrowRight')mdir={x:1,y:0};
+else if(k==='ArrowUp')mdir={x:0,y:-1};else if(k==='ArrowDown')mdir={x:0,y:1}});
+window.setDir=(dx,dy)=>{mdir={x:dx,y:dy}};
+Object.defineProperty(window,'score',{get:()=>score});Object.defineProperty(window,'run',{get:()=>run});
+Object.defineProperty(window,'got',{get:()=>got});Object.defineProperty(window,'mpos',{get:()=>({x:mx,y:my})});
+document.getElementById('startBtn').onclick=()=>{document.getElementById('startOvl').classList.add('hide');rs();level=1;score=0;lives=3;run=true;gen();upd()};
+document.getElementById('againBtn').onclick=()=>{document.getElementById('overOvl').classList.add('hide');level=1;score=0;lives=3;run=true;gen();upd()};
+rs();gen();run=false;requestAnimationFrame(loop);
+</script>
+</body>
+</html>
